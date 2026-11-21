@@ -396,3 +396,77 @@ Rule adopted from this: an external log enters as UNVERIFIED by default, and its
 carry no weight. A claim is promoted to verified only when a test on this machine reproduces it,
 and the ledger records which test.
 
+
+---
+
+## 10. Ingest of Summary3 (Dynamic Sparse Execution)
+
+Same provenance rule as section 9: assumption, no test run. It nonetheless converges on the
+design already recorded here, which is the strongest signal in any of the three logs.
+
+### 10.1 Adopted, and independently corroborated
+
+1. Target centred native resolution crop driven by the Kalman prediction, with detections
+   shifted back to global coordinates. This is decisions 10 to 13 restated, and it is the correct
+   answer for the LOCKED state.
+2. Rejection of uniform tiling, on thermal and memory bandwidth grounds. Our own measurement is
+   stronger: a 45 tile sweep at 1080p costs 345 ms against 38.0 ms for one 640 pass, so 11x. The
+   thermal argument is plausible but was never measured.
+3. Rejection of ROI compression on a local pipeline. Same conclusion as decision 17, and now
+   arrived at three separate times.
+4. Rejection of grayscale. It costs nothing in speed because NPU paths still take 3 channels, and
+   it destroys colour, which our descriptor weights heavily: the hue histogram block carries
+   weight 2.0 against 1.0 for the others.
+5. Coordinate shift before the tracker. Third independent statement of decision 10.
+6. BoT-SORT's Kalman state is (x, y, w, h) rather than DeepSORT's (x, y, aspect, h), which is a
+   real difference and a real advantage on targets that change scale as they approach.
+
+### 10.2 Corrections
+
+1. "YOLO26n INT8 delivers a 2x to 3.5x speedup with under 1.5 percent mAP drop." Hardware
+   dependent and contradicted here: on this non VNNI CPU INT8 measured 9.2 to 18.5 ms, a 2x
+   SLOWDOWN. The speedup only exists where the silicon has an int8 dot product path. Correct
+   statement: INT8 buys model size and power, and buys speed only on suitable accelerators.
+2. "Short-term Re-ID appearance buffering (track_buffer) to re-acquire obscured targets"
+   conflates two mechanisms that BoT-SORT keeps separate. `track_buffer` is a frame count that
+   keeps a lost track alive for re-association. Appearance embeddings are a different buffer, and
+   with `with_reid: true` plus `model: auto` they are a pass through reusing detector features.
+   The log's own friction point 1 states correctly that there is no permanent memory, so the
+   accepted approach line contradicts it.
+3. A 640x640 square sensor crop is correct for a target centred LOCKED crop and wrong for a
+   full frame SEARCH pass. See section 8: a square tensor uses 56.2 percent of its area on a
+   16:9 feed. The log gives one shape for both states, which is the same error as Summary2.
+
+### 10.3 New measurement: how to fit a frame into a fixed tensor
+
+Fixed 384x384 tensor, 147 kpx, 1920x1080 source, subject placed to land at 48 px tall in the
+tensor so resolution is not a confound:
+
+| strategy | in tensor | hit | unmatched detections | latency |
+| --- | --- | --- | --- | --- |
+| letterbox | preserve aspect, pad | 3 of 3, IoU 0.72 to 0.84 | 12 | 17.79 ms |
+| stretch | distort aspect 1.78x | 0 of 3 | 12 | 15.65 ms |
+| centre crop | preserve aspect, discard sides | 0 of 3 | 7 | 16.53 ms |
+
+Reading it honestly, because the raw table is misleading:
+
+1. Stretch is genuinely rejected. A 1.78x aspect distortion destroyed every detection at the same
+   in-tensor size, which settles Summary2's blanket rejection with evidence rather than principle.
+2. Crop's 0 of 3 is mostly field of view loss, not poor detection: a centre square crop keeps only
+   56.2 percent of the frame width, so two of the three subject positions were outside the crop by
+   construction. That is the real cost of cropping, and it is fatal for SEARCH.
+3. It is not an argument against cropping for LOCKED, because a target centred crop has the target
+   inside by definition. This is exactly Summary3's proposal, and it is already the design.
+4. Unmatched detections are high in all three, 7 to 12, because the scene is a real busy photo
+   with real people in it. Not evidence about the strategies.
+
+Conclusion: letterbox for the full frame SEARCH pass, a target centred crop with no stretch for
+LOCKED, never stretch, and never centre crop a full frame and call it a search.
+
+### 10.4 Still open after three logs
+
+The same five items, now asked three times and answered none: edge device family, capture
+resolution, target class, search window length, and a source of 300 or more calibration frames.
+Until the first of those is answered, every INT8, thermal and TensorRT claim from all three logs
+stays unverifiable, and the FP32 ONNX path stays the only thing that can be tested here.
+
