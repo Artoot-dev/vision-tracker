@@ -1,5 +1,7 @@
 # PROJECT LEDGER: vision tracker
 
+Repository: https://github.com/Artoot-dev/vision-tracker (public, branch main)
+
 Purpose: the single durable source of truth for decisions and measured numbers, so any AI
 conversation (this one, or another) can be brought up to speed from this file instead of
 from chat history. Chat history gets compacted and silently loses numbers. This file does not.
@@ -198,3 +200,92 @@ Environment facts:
   clamps to never enlarge unless allow_upscale is set, so it was fed 1:1 inside a padded tensor.
 - Reading "balanced" in config.yaml as anything to do with compression. It is an association gate
   strictness profile only. The strict profile raises the template update gate from 0.50 to 0.95.
+
+---
+
+## 7. Session additions, ingest of Summary1 and Summary2 (another AI conversation)
+
+### 7.1 Verified: the Stride-32 rule is real, and stricter than claimed
+
+Measured on yolo26n fp32 ONNX, 1080p source, this CPU:
+
+| tensor | divisibility | result |
+| --- | --- | --- |
+| 640x480 | both /32 | 28.43 ms, 92.6 us per kpx |
+| 640x640 | both /32 | 38.01 ms, 92.8 us per kpx |
+| 768x576 | both /32 | 40.70 ms, 92.0 us per kpx |
+| 960x544 | both /32 | 48.37 ms, 92.6 us per kpx |
+| 640x448 | both /32 | 26.45 ms, 92.2 us per kpx |
+| 720x540 | neither | export silently became 736x544, then runtime INVALID_ARGUMENT |
+| 960x540 | height not /32 | same: export silently reshaped, runtime refused |
+
+Conclusions:
+
+1. Cost is linear in tensor area to within 0.9 percent, 92.0 to 92.8 us per kilopixel
+   across every valid shape. So the Summary2 statement that cost is O(N squared) is
+   correct, and the constant is 92 us per kpx on this machine.
+2. A non multiple of 32 is not merely slower, it is silently altered at export and then
+   rejected at runtime. Ultralytics rounds the request up (720x540 became 736x544) and the
+   resulting static graph no longer matches the requested input.
+3. Rule adopted: every tensor height and width must be divisible by 32, and the exporter
+   output shape must be asserted against the request, never assumed.
+
+### 7.2 Corrected: the widescreen letterbox argument is backwards
+
+`letterbox` preserves aspect ratio, so a 1920x1080 (16:9) frame uses this share of each tensor:
+
+- 640x640, aspect 1.0: content 640x360, 56.2 percent used, 43.8 percent padding
+- 640x480, aspect 1.33: content 480x270, 42.2 percent used, 57.8 percent padding
+- 768x576, aspect 1.33: content 576x324, 42.2 percent used, 57.8 percent padding
+- 960x544, aspect 1.76: content 544x306, 31.9 percent used, 68.1 percent padding
+
+So on a 16:9 feed the square 640x640 wastes 43.8 percent and the widescreen 640x480 wastes
+57.8 percent. The square tensor is closer to 16:9 than 4:3 or 1.76 is, so Summary2 has the
+direction of the trade inverted. To actually exploit a 16:9 feed the tensor must be 16:9
+itself, for example 608x352 or 640x352, both divisible by 32.
+
+Also, a widescreen tensor at equal long side is not cheaper per useful pixel. 640x480 holds
+270 content rows at 92.3 us per kpx, while 640x640 holds 360 content rows for 38.01 ms, so
+each content row costs 105 us against 77 us.
+Nice correction to make/Verify: cropping instead of letterboxing, since a crop fills the
+tensor completely with no padding at all.
+
+### 7.3 Adopted from the other conversation
+
+1. Coordinate normalisation before the tracker, so Kalman velocity and IoU are immune to crop
+   and zoom scaling. This matches decision 10 in section 1, independently arrived at.
+2. Reject raw pixel coordinates from dynamic crops, for the same reason.
+3. Reject runtime dynamic tensor shapes for TensorRT class engines: reallocation and kernel
+   re-optimisation cause latency spikes. This is the same argument as decision 13, fixed
+   tensor phase ladder.
+4. Reject sub-4-bit or log profile input; keep 8-bit sRGB per channel, which is 24-bit total
+   and is what detectors are trained on. Terminology resolved: 8-bit means per channel.
+5. Keep 1:1 as the preferred mapping, and now also allow explicit upscaling as a separate
+   opt-in flag (see section 7.4), rather than a silent clamp.
+6. Stride-32 rule, hardened per 7.1.
+7. Dual static model discovery and tracking, which is our phase ladder under another name.
+8. Domain specific INT8 calibration on 300 or more frames, already open question 2.
+
+### 7.4 Conflicts, resolved by measurement, in favour of this ledger
+
+1. Summary2 rejects upsampling a small ROI into a larger tensor. Keep it, but only as an
+   explicit, measured, opt-in tool. Rationale: a 24 px person was detectable at 1:1 in a small
+   crop (IoU 0.83) and undetectable in the full frame. Upscaling invents no detail, so it is
+   never a substitute for a real crop; it only moves a subject back into the detector's trained
+   apparent size band. It is now `allow_upscale`, defaulting off.
+2. Summary2 rejects confidence normalisation for INT8. Agreed as a matter of principle: fix
+   calibration first. But thresholds must still be retuned per precision, because measured
+   confidence drops 0.2 to 0.3 even with correct calibration.
+3. Summary1 treats compression as a live component. It is out of scope for the perception path,
+   decision 17. Only relevant to a networked source or the exported file.
+4. Summary1 says disable Re-ID and GMC when stationary or compute bound. GMC must stay: it is
+   the reason identity survives a moving gimbal. Re-ID is already rejected.
+5. Any nvvideoconvert, DALI, CUDA, or TensorRT specific advice assumes an NVIDIA GPU. The edge
+   device is still undecided, so those benchmarks cannot be run and are not scheduled.
+
+### 7.5 Test results on the Summary2 pseudocode
+
+The Stride-32 and letterbox claims are now measured (7.1, 7.2). The 1:1 floor claim is
+contradicted by the 24 px detection at a 128 crop (section 2), so the floor must be expressed
+as subject pixels in the tensor, not as a crop minimum.
+
