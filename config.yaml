@@ -1,0 +1,131 @@
+# Edge vision tracker config.
+# CLI flags override anything here. Profiles: balanced | strict
+profile: balanced
+
+video:
+  stride: 1
+  start_frame: 0
+  max_frames: 0          # 0 = whole clip (use 150 for a fast tuning pass)
+  fps_override: 0.0      # 0 = trust the container
+
+camera:
+  hfov_deg: 65.0         # only used if focal_px is 0
+  focal_px: 0.0
+  ipd_m: 0.063           # real inter-pupillary distance for depth
+
+depth:
+  enable: true
+  mode: ipd              # ipd | pseudo | off
+  person_height_m: 1.70
+
+face:
+  enable: true
+  scale_factor: 1.1
+  min_neighbors: 5
+  every_n: 1             # run Haar every N frames (2 halves the cost)
+
+detector:
+  backend: auto          # auto | ultralytics | onnx | dummy
+  model: yolov8n.pt      # or yolov8n_int8.onnx / yolov8n_int8.tflite
+  imgsz: 416             # 320 is the fast edge setting, 640 the accurate one
+  conf: 0.25
+  iou: 0.50
+  classes: [0]           # 0 = person. Empty list [] = all classes
+  device: ""             # cpu | cuda:0 | mps
+  half: false
+  max_det: 50
+  onnx_format: auto
+  normalize: true
+  verbose: false
+  dummy_gt: null
+  redetect_conf: 0.15    # used only while the lock is LOST
+  every_n: 1             # 1 = YOLO every frame. 3 = YOLO every 3rd frame, the
+                         # tracker carries the rest. This is how you measure how
+                         # long BoT-SORT holds without the detector.
+
+tracker:
+  name: botsort          # botsort | bytetrack | none
+  config: configs/botsort_reid.yaml
+  process_noise: 40.0
+  meas_noise: 3.0
+  coast_max_frames: 30   # spec: coasting phase 1-30 frames
+  lost_max_frames: 240   # spec: >30 frames -> re-detection recovery
+  redetect_every: 5
+  uncertainty_growth: 1.12
+  coast_size_growth: 0.02
+  search_base_px: 28.0
+  search_growth: 0.25
+  search_diag_frac: 0.35
+  iou_min: 0.20
+  iou_min_coast: 0.02
+  iou_strong: 0.50
+  sim_min: 0.50
+  sim_min_lock: 0.40
+  hard_sim_floor: 0.30
+  maha_gate: 4.0
+  w_iou: 1.0
+  w_emb: 2.0
+  w_motion: 0.5
+  w_id: 0.8
+  size_alpha: 0.25
+  min_area_px: 16.0
+  trail_len: 180
+  gmc: true              # own GMC; auto-disabled when BoT-SORT provides it
+  flow_refine: false     # LK flow refinement during coasting
+  own_ids: true
+
+reid:
+  embedder: lite         # lite | mobilenet | none
+  weights: null
+  size: [32, 64]
+  hist_h: 8
+  hist_s: 8
+  mask: ellipse          # ellipse | center | none
+  crop_pad: 0.0
+  sat_min: 25            # saturation gate for the hue histogram (0-255)
+  block_weights: [2.0, 1.0, 1.0, 1.0]   # hue-hist, spatial, gradient, value-hist
+  ema_alpha: 0.10
+  update_score_gate: 0.50   # strict profile sets 0.95
+  update_sim_min: 0.55
+  drift_floor: 0.40
+  gallery_size: 8
+  gallery_dedupe: 0.98
+
+sync:
+  motor_hz: 1000.0
+  latency_comp: true
+  max_extrapolate_ms: 120.0
+  fixed_latency_ms: 0.0
+
+live:
+  window: vision tracker
+  window_enabled: true
+  speed: 1.0             # 1.0 = real time, 0 = as fast as possible
+  catch_up: true         # drop late source frames so the view stays real-time
+  max_skip: 30
+  progress_every: 60
+  reuse_selection_frame: true
+  quiet: false
+
+output:
+  dir: out
+  video: null
+  jsonl: null
+  stats: null
+  codec: mp4v
+  h264: true             # use the ffmpeg h264 pipe when ffmpeg is on PATH
+  draw_trail: 180
+  hud: true
+  points: false          # draw the trail as tracking points instead of a line
+  keypoints: false       # draw pose keypoints when the model provides them
+  all_tracks: true       # draw every detection, or only the subject
+  save_selection_png: true
+  progress_every: 25
+
+selection:
+  mode: click            # click | auto | point | roi
+  at_sec: 0.0
+  auto_rule: largest     # largest | conf
+  point: null
+  roi: null
+  scan_sec: 2.0          # if the chosen frame has no detections, scan ahead this long

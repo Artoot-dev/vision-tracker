@@ -1,0 +1,16 @@
+# BoT-SORT with Re-ID enabled.
+# Ultralytics ships with_reid: false by default; the spec calls for
+# "IoU spatial association & Re-ID", so this config turns the appearance branch on.
+# GMC is BoT-SORT's own (sparseOptFlow) - the pipeline disables its duplicate GMC.
+tracker_type: botsort
+track_high_thresh: 0.25
+track_low_thresh: 0.10
+new_track_thresh: 0.25
+track_buffer: 60          # keep IDs alive longer than the default 30 frames
+match_thresh: 0.80
+fuse_score: true
+gmc_method: sparseOptFlow # none | orb | sparseOptFlow
+proximity_thresh: 0.50
+appearance_thresh: 0.25
+with_reid: true
+model: auto               # auto = built-in lightweight ReID features

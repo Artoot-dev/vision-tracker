@@ -1,0 +1,29 @@
+# Virtualenv: 1.2 GB, and platform bound. Never commit it.
+.venv/
+venv/
+
+# Model weights and exported graphs: large binaries, fetch or export them instead.
+*.pt
+*.pth
+*.onnx
+*.tflite
+*.rknn
+*.engine
+*.mlpackage/
+
+# Runtime output: recorded video, jsonl traces, stats, generated test clips.
+out/
+runs/
+
+# Calibration dataset downloaded by tools/export_int8.py.
+datasets/
+
+# Caches and OS noise.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+*.log
+
+# Tool output, regenerated on demand.
+graphify-out/

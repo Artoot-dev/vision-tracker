@@ -1,0 +1,15 @@
+# Core (all you need for the ONNX / TFLite edge path)
+# numpy is pinned below 2.0: the last torch build for Intel macOS (2.2.2) is
+# compiled against numpy 1.x, and mixing them breaks the ultralytics backend.
+numpy>=1.24,<2.0
+opencv-python>=4.8,<5
+PyYAML>=6.0,<7
+onnxruntime>=1.17,<2
+
+# Optional: full ultralytics backend (BoT-SORT, .pt models, one-line INT8/TFLite
+# export). Adds torch, so install only where you need it:
+#   pip install "ultralytics>=8.2,<9"
+#
+# Optional: standalone INT8 quantisation of an ONNX model (onnxruntime already
+# ships the quantiser; the onnx package is only needed for graph surgery)
+#   pip install "onnx>=1.15,<2"
