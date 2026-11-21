@@ -292,3 +292,107 @@ The Stride-32 and letterbox claims are now measured (7.1, 7.2). The 1:1 floor cl
 contradicted by the 24 px detection at a 128 crop (section 2), so the floor must be expressed
 as subject pixels in the tensor, not as a crop minimum.
 
+
+---
+
+## 8. Correction: my section 7.2 was wrong, and the log was right after all
+
+Two errors in my own previous entry. Recording them because the human asked for
+mistakes to be flagged, not quietly overwritten.
+
+### 8.1 What I got wrong
+
+1. Orientation labels. I passed `imgsz=(h, w)` and then wrote the results out as if they
+   were `(w, h)`. So the shapes I called "widescreen" were in fact 576x320 and 640x352, which
+   are PORTRAIT, aspect 0.56 and 0.55. I never tested a true 16:9 tensor at all.
+2. The conclusion. I wrote that a square 640x640 is "closer to 16:9" and therefore better than
+   a widescreen tensor. That is arithmetically false. The share of a tensor used by a width
+   bound letterbox is 0.5625 x (tensor width / tensor height), so utilisation is linear in the
+   tensor's own aspect, and 16:9 fills it completely. Square is not closer to anything; it
+   throws away 43.8 percent of its area.
+
+Consequence: the Summary2 claim that a widescreen tensor wastes less than a square one was
+correct in direction all along. Its specific tensor choice, 640x480, was still wrong, because
+640x480 is 4:3 (aspect 1.33), not 16:9.
+
+### 8.2 What is actually true, measured
+
+For a 1920x1080 feed, all shapes divisible by 32, no crop:
+
+| tensor | aspect | tensor kpx | useful kpx | used pc | latency | us per useful px |
+| --- | --- | --- | --- | --- | --- | --- |
+| 640x640 | 1.000 | 409.6 | 230.4 | 56.2 | 36.20 ms | 0.1571 |
+| 512x288 | 1.778 | 147.5 | 147.5 | 100.0 | 16.08 ms | 0.1090 |
+| 1024x576 | 1.778 | 589.8 | 589.8 | 100.0 | 58.47 ms | 0.0991 |
+| 640x352 | 1.818 | 225.3 | 220.4 | 97.8 | 21.97 ms | 0.0997 |
+| 640x384 | 1.667 | 245.8 | 230.4 | 93.8 | 24.08 ms | 0.1045 |
+
+1. Matching the source aspect fills the tensor completely. 512x288 uses 100 percent of its
+   area against 56.2 percent for 640x640.
+2. Per useful pixel, 512x288 is 1.44x cheaper than 640x640 (0.1090 against 0.1571).
+3. At an equal latency budget of about 16 ms, a 16:9 tensor carries 147 kpx of scene while the
+   largest affordable square, 416x416, carries 97 kpx. So at equal cost, matching the aspect
+   covers 1.5x more of the scene.
+4. A near 16:9 shape, 640x352 at 97.8 percent used, is essentially tied with exact 16:9 and is
+   the better choice when more detail is wanted at 21.97 ms.
+5. Recall at equal in-tensor subject height (48 px), three positions: exact 16:9 hit 3 of 3,
+   and every other shape hit 2 of 3. Suggestive, not conclusive, n=1 per position.
+
+### 8.3 What this changes in the design
+
+1. Aspect must be chosen per state, because the crop shape differs per state. SEARCH feeds the
+   whole frame, so its tensor should be 16:9: use 512x288. LOCKED crops a square ROI, so a square
+   tensor is already zero padding: keep 256 or 384 square. A single shape for both is wrong.
+2. This is what the "dual static model" split was groping toward in the other log. It is right,
+   but it has to be dual in ASPECT, not merely in size.
+3. 640x640 should not be the default anything. It is the worst of the shapes measured for a
+   widescreen feed.
+4. Still untested: a direct crop that fills the tensor with no padding, and the exact small-subject
+   floor per aspect. Both are now scheduled tests rather than assumptions.
+
+## 9. Provenance: every external claim from Summary1 and Summary2 is assumption
+
+The human confirmed that the conversations behind those logs never ran a test. That reframes
+them, and one detail proves the point: Summary2 quotes INT8 latency as 9.2 ms rising to 18.5 ms
+on a non VNNI CPU. Those are byte identical to numbers measured in THIS project's session and
+fed back out. So Summary2 is partly a restatement of our own results, not independent evidence.
+Echoed numbers are the specific hazard of splitting one project across several AI conversations.
+
+Tally of every substantive claim in the two logs, against this machine:
+
+VERIFIED by our own measurement, and kept:
+1. Inference cost is driven by input tensor area, not ROI content. O(N squared) with a constant
+   of 92.0 to 92.8 us per kilopixel.
+2. Stride-32 divisibility is mandatory, and stricter than claimed: a violation is silently
+   reshaped at export and then rejected at runtime.
+3. INT8 on a non VNNI CPU doubles latency. But see above: this is our own number, not a
+   corroboration.
+4. Coordinate normalisation before the tracker, and rejection of raw crop coordinates.
+5. Rejection of runtime dynamic tensor shapes.
+6. 8-bit input means 8 bits per channel, 24 bits total. True by definition.
+7. Matching the tensor aspect to the source reduces waste. Right in direction, wrong tensor
+   given, see section 8.
+
+CONTRADICTED by our measurement, so dropped:
+1. A square tensor "wastes up to 25 percent". It wastes 43.8 percent.
+2. Upsampling a small ROI into a larger tensor is never useful. Contradicted: a 24 px subject was
+   detected at 1:1 inside a small crop and was undetectable in the full frame, so crop plus
+   explicit scaling is a real tool.
+3. Cost per content row favours a widescreen tensor. Backwards; per useful pixel the aspect
+   matched tensor wins by 1.44x.
+4. Disable GMC when compute bound. GMC is what makes identity survive a moving gimbal, and it
+   costs 2.11 ms full frame.
+5. "Log Entry" statuses such as Verified and Validated Strategy in the human's own vault. None of
+   them correspond to a run. They should be downgraded to Idea until a test exists.
+
+UNFALSIFIABLE HERE, parked, not to be built on:
+1. TensorRT reallocation stalls, DALI, CV-CUDA, nvvideoconvert, VRAM local cropping: all
+   NVIDIA GPU specific, and the edge device is undecided.
+2. Bitrate and compression policy: out of scope on the perception path.
+3. INT8 confidence drop resolving to under 0.05 with 300 or more calibration frames. Plausible,
+   untested either way.
+
+Rule adopted from this: an external log enters as UNVERIFIED by default, and its status chips
+carry no weight. A claim is promoted to verified only when a test on this machine reproduces it,
+and the ledger records which test.
+
