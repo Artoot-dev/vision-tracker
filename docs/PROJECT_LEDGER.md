@@ -246,9 +246,12 @@ itself, for example 608x352 or 640x352, both divisible by 32.
 
 Also, a widescreen tensor at equal long side is not cheaper per useful pixel. 640x480 holds
 270 content rows at 92.3 us per kpx, while 640x640 holds 360 content rows for 38.01 ms, so
-each content row costs 105 us against 77 us.
-Nice correction to make/Verify: cropping instead of letterboxing, since a crop fills the
-tensor completely with no padding at all.
+each content row costs 105 us against 77 us, so the square tensor gives more useful rows
+per unit time despite the padding.
+
+Not yet measured: a 16:9 tensor (for example 608x352 or 640x352, both divisible by 32) or a
+direct crop, which fills the tensor with no padding at all. Both are scheduled as tests, not
+assumptions.
 
 ### 7.3 Adopted from the other conversation
 
